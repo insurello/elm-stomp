@@ -11,15 +11,17 @@ module Stomp.Client exposing
   , begin
   , commit
   , abort
+  , heartbeat
   )
 
 import WebSocket
 import Json.Encode
+import Time exposing (Time)
 import Stomp.Frame exposing (frame, encode, Header)
 
 
 type alias HeartBeatRate =
-  ( Int, Int )
+  ( Time, Time )
 
 
 type AckMode
@@ -167,3 +169,8 @@ abort server trx =
     frame "ABORT" headers Nothing
       |> encode
       |> WebSocket.send server
+
+
+heartbeat : String -> Cmd msg
+heartbeat server =
+  WebSocket.send server "\n"
