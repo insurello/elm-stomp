@@ -23,6 +23,7 @@ type ServerFrame
   | Message (List Header) (Maybe String)
   | Receipt String
   | Error (Maybe String)
+  | HeartBeat
 
 
 frame : String -> List Header -> Maybe String -> Frame
@@ -48,6 +49,8 @@ decode frame =
       Receipt receiptId
     ("ERROR", headers, body) ->
       Error body
+    ("", [], Nothing) ->
+      HeartBeat
     _ ->
       Error (Just "Invalid frame")
 

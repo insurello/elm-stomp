@@ -18,6 +18,10 @@ import Json.Encode
 import Stomp.Frame exposing (frame, encode, Header)
 
 
+type alias HeartBeatRate =
+  ( Int, Int )
+
+
 type AckMode
   = AutoAck
   | ClientAck
@@ -29,14 +33,15 @@ listen server msg =
   WebSocket.listen server msg
 
 
-connect : String -> String -> String -> String -> Cmd msg
-connect server login passcode vhost =
+connect : String -> String -> String -> String -> HeartBeatRate -> Cmd msg
+connect server login passcode vhost (cx, cy) =
   let
       headers =
         [ ("accept-version", "1.2")
         , ("host", vhost)
         , ("login", login)
         , ("passcode", passcode)
+        , ("heart-beat", (toString cx) ++ "," ++ (toString cy))
         ]
   in
     frame "CONNECT" headers Nothing
