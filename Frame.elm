@@ -60,6 +60,7 @@ encode ( command, headers, body ) =
   let
     headerLines =
       headers
+        |> List.filter (\(k,_) -> k /= "")
         |> List.map (\(k,v) -> (escape k) ++ ":" ++ (escape v))
         |> String.join "\n"
     bodyStr =
