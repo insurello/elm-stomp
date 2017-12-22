@@ -1,8 +1,9 @@
-module Stomp.Frame exposing
+module Stomp.Internal.Frame exposing
   ( frame
   , headerValue
   , encode
   , decode
+  , Frame
   , Header
   , ServerFrame(..)
   )
@@ -38,21 +39,21 @@ headerValue key headers =
     |> List.head
 
 
-decode : String -> ServerFrame
+decode : String -> Result String ServerFrame
 decode frame =
   case parseFrame frame of
     ("CONNECTED", headers, _) ->
-      Connected headers
+      Ok (Connected headers)
     ("MESSAGE", headers, body) ->
-      Message headers body
+      Ok (Message headers body)
     ("RECEIPT", [("receipt-id", receiptId)], _) ->
-      Receipt receiptId
+      Ok (Receipt receiptId)
     ("ERROR", headers, body) ->
-      Error body
+      Ok (Error body)
     ("", [], Nothing) ->
-      HeartBeat
+      Ok (HeartBeat)
     _ ->
-      Error (Just "Invalid frame")
+      Err "Invalid frame"
 
 
 encode : Frame -> String
