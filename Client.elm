@@ -499,7 +499,7 @@ call server proc =
       "/temp-queue/" ++ proc.cmd
 
     headers =
-      [ ("destination", "/queue/rpc." ++ proc.cmd)
+      [ ("destination", "/queue/" ++ proc.cmd)
       , ("reply-to", replyTo)
       , ("content-type", "application/json")
       ] ++ proc.headers
