@@ -6,13 +6,13 @@ import Task exposing (Task)
 
 
 type Connection
-  = Closed
-  | Opening Int Process.Id
-  | Connected WS.WebSocket
+    = Closed
+    | Opening Int Process.Id
+    | Connected WS.WebSocket
 
 
 type alias InternalSocket =
-  { connection : Connection }
+    { connection : Connection }
 
 
 internalSocket : InternalSocket
@@ -22,7 +22,7 @@ internalSocket =
 
 update : InternalSocket -> InternalSocket -> InternalSocket
 update newSocket oldSocket =
-  oldSocket
+    oldSocket
 
 
 opening : Int -> Process.Id -> InternalSocket -> InternalSocket
@@ -37,32 +37,35 @@ connected ws socket =
 
 backoffIteration : InternalSocket -> Int
 backoffIteration socket =
-  case socket.connection of
-    Opening n _ -> n
-    _ -> 0
+    case socket.connection of
+        Opening n _ ->
+            n
+
+        _ ->
+            0
 
 
 close : InternalSocket -> Task x ()
 close { connection } =
-  case connection of
-    Opening _ pid ->
-      Process.kill pid
+    case connection of
+        Opening _ pid ->
+            Process.kill pid
 
-    Connected socket ->
-      WS.close socket
+        Connected socket ->
+            WS.close socket
 
-    Closed ->
-      Task.succeed ()
+        Closed ->
+            Task.succeed ()
 
 
 send : InternalSocket -> String -> Task x (Maybe WS.BadSend)
 send { connection } frame =
-  case connection of
-    Opening _ _ ->
-      Task.succeed (Nothing)
+    case connection of
+        Opening _ _ ->
+            Task.succeed (Nothing)
 
-    Closed ->
-      Task.succeed (Nothing)
+        Closed ->
+            Task.succeed (Nothing)
 
-    Connected socket ->
-      WS.send socket frame
+        Connected socket ->
+            WS.send socket frame
