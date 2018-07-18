@@ -6,6 +6,7 @@ module Stomp.Proc
         , withHeaders
         , withPayload
         , onResponse
+        , map
         )
 
 import Json.Encode exposing (Value)
@@ -52,3 +53,12 @@ withPayload body proc =
 onResponse : Callback msg -> Proc msg -> Proc msg
 onResponse callback proc =
     { proc | onResponse = Just callback }
+
+
+map : (a -> b) -> Proc a -> Proc b
+map func proc =
+    let
+        mapCallback func callback =
+            (\a -> func (callback a))
+    in
+        { proc | onResponse = Maybe.map (mapCallback func) proc.onResponse }

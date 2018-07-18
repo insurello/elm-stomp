@@ -22,12 +22,14 @@ import Process
 import Dict exposing (Dict)
 import Json.Encode
 import Debug
+import Stomp.Internal.Body as Body
 import Stomp.Internal.Callback exposing (Callback)
 import Stomp.Internal.Frame exposing (ServerFrame, Frame, Header, frame)
 import Stomp.Internal.Message
 import Stomp.Internal.Socket
 import Stomp.Internal.Session
 import Stomp.Internal.Subscription
+import Stomp.Internal.Proc
 import Stomp.Subscription exposing (Subscription, AckMode)
 import Stomp.Proc exposing (RemoteProcedure)
 import Stomp.Message exposing (Message)
@@ -53,21 +55,19 @@ subMap func sub =
 
 
 type InternalCmd msg
-    = SocketSend Endpoint (Maybe ( String, Callback msg )) Frame
+    = Send Endpoint Frame
     | Connect Endpoint (Stomp.Internal.Session.Options msg)
     | Disconnect Endpoint
     | Subscribe Endpoint (Stomp.Subscription.Subscription msg)
     | Unsubscribe Endpoint (Stomp.Subscription.Subscription msg)
+    | Call Endpoint (Stomp.Proc.RemoteProcedure msg)
 
 
 cmdMap : (a -> b) -> InternalCmd a -> InternalCmd b
 cmdMap func cmd =
     case cmd of
-        SocketSend endpoint (Just ( id, msg )) body ->
-            SocketSend endpoint (Just ( id, (\a -> func (msg a)) )) body
-
-        SocketSend endpoint Nothing body ->
-            SocketSend endpoint Nothing body
+        Send endpoint body ->
+            Send endpoint body
 
         Connect endpoint options ->
             Connect endpoint (Stomp.Internal.Session.map func options)
@@ -80,6 +80,9 @@ cmdMap func cmd =
 
         Unsubscribe endpoint sub ->
             Unsubscribe endpoint (Stomp.Subscription.map func sub)
+
+        Call endpoint proc ->
+            Call endpoint (Stomp.Proc.map func proc)
 
 
 type Msg msg
@@ -94,6 +97,8 @@ type alias State msg =
     { sockets : Dict Endpoint Stomp.Internal.Socket.InternalSocket
     , sessions : Dict Endpoint (Stomp.Internal.Session.Session msg)
     , subscriptions : Dict Endpoint (Dict String (Callback msg))
+    , callbacks : Dict Stomp.Internal.Proc.CorrelationId (Callback msg)
+    , nextId : Int
     }
 
 
@@ -154,7 +159,7 @@ open router endpoint =
 
 init : Task Never (State msg)
 init =
-    Task.succeed (State Dict.empty Dict.empty Dict.empty)
+    Task.succeed (State Dict.empty Dict.empty Dict.empty Dict.empty 1)
 
 
 onEffects :
@@ -223,9 +228,8 @@ processCommands cmds state =
         [] ->
             Task.succeed state
 
-        (SocketSend endpoint sub frame) :: rest ->
+        (Send endpoint frame) :: rest ->
             sendFrame endpoint frame state
-                |> Task.map (insertSubscription endpoint sub)
                 |> Task.andThen (processCommands rest)
 
         (Connect endpoint options) :: rest ->
@@ -239,12 +243,24 @@ processCommands cmds state =
 
         (Subscribe endpoint sub) :: rest ->
             sendFrame endpoint (Stomp.Internal.Subscription.subscribe sub) state
-                |> Task.map (insertSubscription endpoint (subscriptionCallback sub))
+                |> Task.map (insertSubscription endpoint sub)
                 |> Task.andThen (processCommands rest)
 
         (Unsubscribe endpoint sub) :: rest ->
             sendFrame endpoint (Stomp.Internal.Subscription.unsubscribe sub) state
                 |> Task.andThen (processCommands rest)
+
+        (Call endpoint proc) :: rest ->
+            let
+                correlationId =
+                    state.nextId |> toString
+
+                frame =
+                    Stomp.Internal.Proc.call proc correlationId
+            in
+                sendFrame endpoint frame state
+                    |> Task.map (insertCallback proc)
+                    |> Task.andThen (processCommands rest)
 
 
 sendFrame : Endpoint -> Frame -> State msg -> Task Never (State msg)
@@ -277,34 +293,46 @@ insertSession endpoint session state =
     { state | sessions = Dict.insert endpoint session state.sessions }
 
 
-insertSubscription :
-    Endpoint
-    -> Maybe ( String, Callback msg )
-    -> State msg
-    -> State msg
+insertSubscription : Endpoint -> Subscription msg -> State msg -> State msg
 insertSubscription endpoint sub state =
-    case sub of
-        Just ( id, msg ) ->
+    case sub.onMessage of
+        Just callback ->
             let
                 update =
                     case Dict.get endpoint state.subscriptions of
                         Just subs ->
-                            Dict.insert id msg subs
+                            Dict.insert sub.id callback subs
 
                         Nothing ->
-                            Dict.insert id msg Dict.empty
+                            Dict.insert sub.id callback Dict.empty
             in
                 { state
-                    | subscriptions = Dict.insert endpoint update state.subscriptions
+                    | subscriptions =
+                        Dict.insert endpoint update state.subscriptions
                 }
 
         Nothing ->
             state
 
 
-subscriptionCallback : Subscription msg -> Maybe ( String, Callback msg )
-subscriptionCallback sub =
-    Maybe.map (\cb -> ( sub.id, cb )) sub.onMessage
+insertCallback : RemoteProcedure msg -> State msg -> State msg
+insertCallback proc state =
+    case proc.onResponse of
+        Just callback ->
+            let
+                correlationId =
+                    state.nextId |> toString
+
+                newCallbacks =
+                    Dict.insert correlationId callback state.callbacks
+            in
+                { state
+                    | callbacks = newCallbacks
+                    , nextId = state.nextId + 1
+                }
+
+        Nothing ->
+            state
 
 
 onSelfMsg :
@@ -412,8 +440,7 @@ onSelfMsg router selfMsg state =
                             |> Task.andThen (notifySession router endpoint .onConnected)
 
                 Stomp.Internal.Frame.Message headers body ->
-                    dispatchMessage router endpoint headers body state.subscriptions
-                        |> Task.andThen (\_ -> Task.succeed state)
+                    dispatch router endpoint headers body state
 
                 Stomp.Internal.Frame.Receipt receiptId ->
                     case receiptId of
@@ -468,34 +495,81 @@ notifySession router endpoint func state =
         |> Task.map (\_ -> state)
 
 
-dispatchMessage :
+dispatch :
     Platform.Router msg (Msg msg)
     -> Endpoint
     -> List Header
     -> Maybe String
+    -> State msg
+    -> Task x (State msg)
+dispatch router endpoint headers body state =
+    let
+        correlationId =
+            Stomp.Internal.Frame.headerValue "correlation-id" headers
+
+        subscription =
+            Stomp.Internal.Frame.headerValue "subscription" headers
+
+        message =
+            Stomp.Internal.Message.init headers body
+    in
+        case correlationId of
+            Just id ->
+                dispatchCallback router id message state.callbacks
+                    |> Task.andThen
+                        (\_ ->
+                            Task.succeed
+                                { state
+                                    | callbacks =
+                                        Dict.remove id state.callbacks
+                                }
+                        )
+
+            Nothing ->
+                dispatchMessage router endpoint subscription message state.subscriptions
+                    |> Task.andThen (\_ -> Task.succeed state)
+
+
+dispatchMessage :
+    Platform.Router msg (Msg msg)
+    -> Endpoint
+    -> Maybe String
+    -> Result String Stomp.Internal.Message.InternalMessage
     -> Dict Endpoint (Dict String (Callback msg))
     -> Task x ()
-dispatchMessage router endpoint headers body subscriptions =
+dispatchMessage router endpoint subscription message subscriptions =
     let
         getSubscription =
             Maybe.map2
                 (,)
                 (Dict.get endpoint subscriptions)
-                (Stomp.Internal.Frame.headerValue "subscription" headers)
+                subscription
                 |> Maybe.andThen
                     (\( subs, id ) ->
                         Dict.get id subs
                     )
-
-        message =
-            Stomp.Internal.Message.init headers body
     in
         case getSubscription of
             Nothing ->
                 Task.succeed ()
 
-            Just msg ->
-                Platform.sendToApp router (msg message)
+            Just callback ->
+                Platform.sendToApp router (callback message)
+
+
+dispatchCallback :
+    Platform.Router msg (Msg msg)
+    -> Stomp.Internal.Proc.CorrelationId
+    -> Result String Stomp.Internal.Message.InternalMessage
+    -> Dict Stomp.Internal.Proc.CorrelationId (Callback msg)
+    -> Task x ()
+dispatchCallback router correlationId message callbacks =
+    case Dict.get correlationId callbacks of
+        Nothing ->
+            Task.succeed ()
+
+        Just callback ->
+            Platform.sendToApp router (callback message)
 
 
 connect : Endpoint -> Options msg -> Cmd msg
@@ -517,31 +591,14 @@ send server destination headers body =
             ]
                 ++ headers
     in
-        frame "SEND" headers_ (Maybe.map (Json.Encode.encode 0) body)
-            |> SocketSend server Nothing
+        frame "SEND" headers_ (Body.encode body)
+            |> Send server
             |> command
 
 
 call : String -> RemoteProcedure msg -> Cmd msg
 call server proc =
-    let
-        replyTo =
-            "/temp-queue/" ++ proc.cmd
-
-        headers =
-            [ ( "destination", "/queue/" ++ proc.cmd )
-            , ( "reply-to", replyTo )
-            , ( "content-type", "application/json" )
-            ]
-                ++ proc.headers
-
-        callback =
-            proc.onResponse
-                |> Maybe.map (\msg -> ( replyTo, msg ))
-    in
-        frame "SEND" headers (Maybe.map (Json.Encode.encode 0) proc.body)
-            |> SocketSend server callback
-            |> command
+    command (Call server proc)
 
 
 subscribe : Endpoint -> Subscription msg -> Cmd msg
@@ -570,7 +627,7 @@ ack server message trx =
                             [ ( "id", ack ) ]
             in
                 frame "ACK" headers Nothing
-                    |> SocketSend server Nothing
+                    |> Send server
                     |> command
 
         Nothing ->
@@ -593,7 +650,7 @@ nack server message trx =
                             [ ( "id", ack ) ]
             in
                 frame "NACK" headers Nothing
-                    |> SocketSend server Nothing
+                    |> Send server
                     |> command
 
         Nothing ->
@@ -607,7 +664,7 @@ begin server trx =
             [ ( "transaction", trx ) ]
     in
         frame "BEGIN" headers Nothing
-            |> SocketSend server Nothing
+            |> Send server
             |> command
 
 
@@ -618,7 +675,7 @@ commit server trx =
             [ ( "transaction", trx ) ]
     in
         frame "COMMIT" headers Nothing
-            |> SocketSend server Nothing
+            |> Send server
             |> command
 
 
@@ -629,5 +686,5 @@ abort server trx =
             [ ( "transaction", trx ) ]
     in
         frame "ABORT" headers Nothing
-            |> SocketSend server Nothing
+            |> Send server
             |> command

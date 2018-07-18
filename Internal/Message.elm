@@ -1,7 +1,6 @@
 module Stomp.Internal.Message exposing (InternalMessage, init)
 
-import Json.Encode
-import Json.Decode exposing (Value)
+import Stomp.Internal.Body as Body
 import Stomp.Internal.Frame exposing (Header)
 
 
@@ -10,7 +9,7 @@ type alias InternalMessage =
     , ack : Maybe String
     , redelivered : Bool
     , headers : List Header
-    , payload : Maybe Value
+    , payload : Body.Value
     }
 
 
@@ -49,20 +48,4 @@ init headers body =
                 }
             )
             (messageId)
-            (decodeBody body contentType)
-
-
-decodeBody : Maybe String -> String -> Result String (Maybe Value)
-decodeBody body contentType =
-    case body of
-        Just str ->
-            case contentType of
-                "application/json" ->
-                    Json.Decode.decodeString Json.Decode.value str
-                        |> Result.map Just
-
-                _ ->
-                    Result.Ok (Just (Json.Encode.string str))
-
-        Nothing ->
-            Result.Ok Nothing
+            (Body.decoder body contentType)

@@ -5,6 +5,7 @@ module Stomp.Subscription
         , init
         , onMessage
         , ackMode
+        , withSubscriptionId
         , map
         )
 
@@ -46,6 +47,11 @@ onMessage callback subscription =
 ackMode : AckMode -> Subscription msg -> Subscription msg
 ackMode ack subscription =
     { subscription | ack = ack }
+
+
+withSubscriptionId : String -> Subscription msg -> Subscription msg
+withSubscriptionId id subscription =
+    { subscription | id = id }
 
 
 map : (a -> b) -> Subscription a -> Subscription b
