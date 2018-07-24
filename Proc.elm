@@ -6,59 +6,68 @@ module Stomp.Proc
         , withHeaders
         , withPayload
         , onResponse
-        , map
+        , batch
+        , none
         )
 
 import Json.Encode exposing (Value)
+import Stomp.Internal.Proc exposing (Proc)
 import Stomp.Internal.Frame exposing (Header)
 import Stomp.Internal.Callback exposing (Callback)
+import Stomp.Internal.Batch exposing (Batch)
 
 
 type alias RemoteProcedure msg =
-    Proc msg
+    Batch (Proc msg)
 
 
-type alias Proc msg =
-    { cmd : String
-    , headers : List Header
-    , body : Maybe Value
-    , onResponse : Maybe (Callback msg)
-    }
-
-
-init : String -> Proc msg
+init : String -> RemoteProcedure msg
 init cmd =
-    { cmd = cmd
-    , headers = []
-    , body = Nothing
-    , onResponse = Nothing
-    }
+    Stomp.Internal.Batch.identity
+        { cmd = cmd
+        , headers = []
+        , body = Nothing
+        , onResponse = Nothing
+        }
 
 
-withHeader : Header -> Proc msg -> Proc msg
-withHeader header proc =
-    { proc | headers = proc.headers ++ [ header ] }
+withHeader : Header -> RemoteProcedure msg -> RemoteProcedure msg
+withHeader header =
+    Stomp.Internal.Batch.map
+        (\proc ->
+            { proc | headers = proc.headers ++ [ header ] }
+        )
 
 
-withHeaders : List Header -> Proc msg -> Proc msg
-withHeaders headers proc =
-    { proc | headers = proc.headers ++ headers }
+withHeaders : List Header -> RemoteProcedure msg -> RemoteProcedure msg
+withHeaders headers =
+    Stomp.Internal.Batch.map
+        (\proc ->
+            { proc | headers = proc.headers ++ headers }
+        )
 
 
-withPayload : Value -> Proc msg -> Proc msg
-withPayload body proc =
-    { proc | body = Just body }
+withPayload : Value -> RemoteProcedure msg -> RemoteProcedure msg
+withPayload body =
+    Stomp.Internal.Batch.map
+        (\proc ->
+            { proc | body = Just body }
+        )
 
 
-onResponse : Callback msg -> Proc msg -> Proc msg
-onResponse callback proc =
-    { proc | onResponse = Just callback }
+onResponse : Callback msg -> RemoteProcedure msg -> RemoteProcedure msg
+onResponse callback =
+    Stomp.Internal.Batch.map
+        (\proc ->
+            { proc | onResponse = Just callback }
+        )
 
 
-map : (a -> b) -> Proc a -> Proc b
-map func proc =
-    let
-        mapCallback func callback =
-            (\a -> func (callback a))
-    in
-        { proc | onResponse = Maybe.map (mapCallback func) proc.onResponse }
+batch : List (RemoteProcedure msg) -> RemoteProcedure msg
+batch =
+    Stomp.Internal.Batch.batch
+
+
+none : RemoteProcedure msg
+none =
+    Stomp.Internal.Batch.none

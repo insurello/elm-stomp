@@ -22,6 +22,7 @@ import Process
 import Dict exposing (Dict)
 import Json.Encode
 import Debug
+import Stomp.Internal.Batch
 import Stomp.Internal.Body as Body
 import Stomp.Internal.Callback exposing (Callback)
 import Stomp.Internal.Frame exposing (ServerFrame, Frame, Header, frame)
@@ -60,7 +61,7 @@ type InternalCmd msg
     | Disconnect Endpoint
     | Subscribe Endpoint (Stomp.Subscription.Subscription msg)
     | Unsubscribe Endpoint (Stomp.Subscription.Subscription msg)
-    | Call Endpoint (Stomp.Proc.RemoteProcedure msg)
+    | Call Endpoint (Stomp.Internal.Proc.Proc msg)
 
 
 cmdMap : (a -> b) -> InternalCmd a -> InternalCmd b
@@ -82,7 +83,7 @@ cmdMap func cmd =
             Unsubscribe endpoint (Stomp.Subscription.map func sub)
 
         Call endpoint proc ->
-            Call endpoint (Stomp.Proc.map func proc)
+            Call endpoint (Stomp.Internal.Proc.map func proc)
 
 
 type Msg msg
@@ -315,7 +316,7 @@ insertSubscription endpoint sub state =
             state
 
 
-insertCallback : RemoteProcedure msg -> State msg -> State msg
+insertCallback : Stomp.Internal.Proc.Proc msg -> State msg -> State msg
 insertCallback proc state =
     case proc.onResponse of
         Just callback ->
@@ -597,8 +598,11 @@ send server destination headers body =
 
 
 call : String -> RemoteProcedure msg -> Cmd msg
-call server proc =
-    command (Call server proc)
+call server =
+    Stomp.Internal.Batch.cmd
+        (\proc ->
+            command (Call server proc)
+        )
 
 
 subscribe : Endpoint -> Subscription msg -> Cmd msg
