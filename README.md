@@ -1,6 +1,8 @@
 # Stomp
 
-An Elm client for the STOMP protocol.
+An Elm client for the STOMP protocol (version 1.2).
+
+https://stomp.github.io/
 
 ## Example usage
 
