@@ -33,7 +33,10 @@ map func batch =
 
 batch : List (Batch a) -> Batch a
 batch items =
-    Items (List.concat (List.map (\(Items items) -> items) items))
+    items
+        |> List.map (\(Items items) -> items)
+        |> List.concat
+        |> Items
 
 
 foldl : (a -> b -> b) -> b -> Batch a -> b
