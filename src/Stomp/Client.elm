@@ -83,8 +83,8 @@ type InternalCmd msg
     = Send Endpoint Frame
     | Connect Endpoint (Stomp.Internal.Session.Options msg)
     | Disconnect Endpoint
-    | Subscribe Endpoint (Stomp.Subscription.Subscription msg)
-    | Unsubscribe Endpoint (Stomp.Subscription.Subscription msg)
+    | Subscribe Endpoint (Stomp.Internal.Subscription.Sub msg)
+    | Unsubscribe Endpoint (Stomp.Internal.Subscription.Sub msg)
     | Call Endpoint (Stomp.Internal.Proc.Proc msg)
 
 
@@ -324,7 +324,11 @@ insertSession endpoint session state =
     { state | sessions = Dict.insert endpoint session state.sessions }
 
 
-insertSubscription : Endpoint -> Subscription msg -> State msg -> State msg
+insertSubscription :
+    Endpoint
+    -> Stomp.Internal.Subscription.Sub msg
+    -> State msg
+    -> State msg
 insertSubscription endpoint sub state =
     case sub.onMessage of
         Just callback ->
@@ -694,8 +698,11 @@ call server =
 
 -}
 subscribe : Endpoint -> Subscription msg -> Cmd msg
-subscribe server sub =
-    command (Subscribe server sub)
+subscribe server =
+    Stomp.Internal.Batch.cmd
+        (\sub ->
+            command (Subscribe server sub)
+        )
 
 
 {-| Unsubscribe an existing subscription (uses subscription id to identify which subscription to unsubscribe).
@@ -706,8 +713,11 @@ subscribe server sub =
 
 -}
 unsubscribe : Endpoint -> Subscription msg -> Cmd msg
-unsubscribe server sub =
-    command (Unsubscribe server sub)
+unsubscribe server =
+    Stomp.Internal.Batch.cmd
+        (\sub ->
+            command (Unsubscribe server sub)
+        )
 
 
 {-| Acknowledge that a message was consumed by the client when using `ClientAck` or `ClientIndividualAck` modes on a subscription.

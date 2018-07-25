@@ -7,6 +7,8 @@ module Stomp.Subscription
         , clientAck
         , clientIndividualAck
         , withSubscriptionId
+        , batch
+        , none
         )
 
 {-| A subscription on a topic.
@@ -31,34 +33,44 @@ module Stomp.Subscription
 
 @docs autoAck, clientAck, clientIndividualAck
 
+
+# Batching
+
+@docs batch, none
+
 -}
 
 import Stomp.Internal.Callback exposing (Callback)
 import Stomp.Internal.Subscription exposing (AckMode(..))
+import Stomp.Internal.Batch exposing (Batch)
 
 
 {-| Describes a subscription.
 -}
 type alias Subscription msg =
-    Stomp.Internal.Subscription.Sub msg
+    Batch (Stomp.Internal.Subscription.Sub msg)
 
 
 {-| Construct a subscription on a specific topic.
 -}
 init : String -> Subscription msg
 init destination =
-    { id = destination
-    , destination = destination
-    , onMessage = Nothing
-    , ack = AutoAck
-    }
+    Stomp.Internal.Batch.identity
+        { id = destination
+        , destination = destination
+        , onMessage = Nothing
+        , ack = AutoAck
+        }
 
 
 {-| Set a callback to be triggered when a message is received.
 -}
 onMessage : Callback msg -> Subscription msg -> Subscription msg
-onMessage callback subscription =
-    { subscription | onMessage = Just callback }
+onMessage callback =
+    Stomp.Internal.Batch.map
+        (\subscription ->
+            { subscription | onMessage = Just callback }
+        )
 
 
 {-| Set the message acknowledgment mode to "auto" (the default).
@@ -71,8 +83,11 @@ dropped.
 
 -}
 autoAck : Subscription msg -> Subscription msg
-autoAck subscription =
-    { subscription | ack = AutoAck }
+autoAck =
+    Stomp.Internal.Batch.map
+        (\subscription ->
+            { subscription | ack = AutoAck }
+        )
 
 
 {-| Set the message acknowledgment mode to "client".
@@ -84,8 +99,11 @@ message has not been processed and may redeliver the message to another client.
 
 -}
 clientAck : Subscription msg -> Subscription msg
-clientAck subscription =
-    { subscription | ack = ClientAck }
+clientAck =
+    Stomp.Internal.Batch.map
+        (\subscription ->
+            { subscription | ack = ClientAck }
+        )
 
 
 {-| Set the message acknowledgment mode to "client-individual".
@@ -97,13 +115,33 @@ subsequent message does not cause a previous message to get acknowledged.
 
 -}
 clientIndividualAck : Subscription msg -> Subscription msg
-clientIndividualAck subscription =
-    { subscription | ack = ClientIndividualAck }
+clientIndividualAck =
+    Stomp.Internal.Batch.map
+        (\subscription ->
+            { subscription | ack = ClientIndividualAck }
+        )
 
 
 {-| Set the id of the subscription to differentiate between multiple
 subscriptions to the same topic (default is to use the topic name).
 -}
 withSubscriptionId : String -> Subscription msg -> Subscription msg
-withSubscriptionId id subscription =
-    { subscription | id = id }
+withSubscriptionId id =
+    Stomp.Internal.Batch.map
+        (\subscription ->
+            { subscription | id = id }
+        )
+
+
+{-| Batch multiple subscriptions together.
+-}
+batch : List (Subscription msg) -> Subscription msg
+batch =
+    Stomp.Internal.Batch.batch
+
+
+{-| Return a subscription that does nothing.
+-}
+none : Subscription msg
+none =
+    Stomp.Internal.Batch.none
