@@ -10,6 +10,53 @@ module Stomp.Proc
         , none
         )
 
+{-| A remote procedure call (the request/response pattern).
+
+    import Stomp.Proc
+    import Stomp.Client
+
+    type Msg = Click | Response (Result String (List String))
+
+    update : Msg -> State -> (State, Cmd Msg)
+    update msg state =
+        case msg of
+            Click ->
+                state ! [ getStrings ]
+
+            Response (Ok strings) ->
+                ...
+
+            Response (Err _) ->
+                ...
+
+    getStrings : Cmd Msg
+    getStrings =
+        Stomp.Proc.init "example.strings"
+            |> Stomp.Proc.onResponse Response
+            |> Stomp.Client.call server
+
+
+# Remote Procedures
+
+@docs RemoteProcedure, init
+
+
+# Headers and Payload
+
+@docs withHeader, withHeaders, withPayload
+
+
+# Response
+
+@docs onResponse
+
+
+# Batching
+
+@docs batch, none
+
+-}
+
 import Json.Encode exposing (Value)
 import Stomp.Internal.Proc exposing (Proc)
 import Stomp.Internal.Frame exposing (Header)
@@ -17,10 +64,14 @@ import Stomp.Internal.Callback exposing (Callback)
 import Stomp.Internal.Batch exposing (Batch)
 
 
+{-| Describes a remote procedure call.
+-}
 type alias RemoteProcedure msg =
     Batch (Proc msg)
 
 
+{-| Construct a remote procedure call with the specified command (queue name).
+-}
 init : String -> RemoteProcedure msg
 init cmd =
     Stomp.Internal.Batch.identity
@@ -31,6 +82,8 @@ init cmd =
         }
 
 
+{-| Add a header to the request message.
+-}
 withHeader : Header -> RemoteProcedure msg -> RemoteProcedure msg
 withHeader header =
     Stomp.Internal.Batch.map
@@ -39,6 +92,8 @@ withHeader header =
         )
 
 
+{-| Add multiple headers to the request message.
+-}
 withHeaders : List Header -> RemoteProcedure msg -> RemoteProcedure msg
 withHeaders headers =
     Stomp.Internal.Batch.map
@@ -47,6 +102,8 @@ withHeaders headers =
         )
 
 
+{-| Add a payload to the request message.
+-}
 withPayload : Value -> RemoteProcedure msg -> RemoteProcedure msg
 withPayload body =
     Stomp.Internal.Batch.map
@@ -55,6 +112,8 @@ withPayload body =
         )
 
 
+{-| Set a callback to be triggered when the response message is received.
+-}
 onResponse : Callback msg -> RemoteProcedure msg -> RemoteProcedure msg
 onResponse callback =
     Stomp.Internal.Batch.map
@@ -63,11 +122,15 @@ onResponse callback =
         )
 
 
+{-| Batch multiple remote procedure calls together.
+-}
 batch : List (RemoteProcedure msg) -> RemoteProcedure msg
 batch =
     Stomp.Internal.Batch.batch
 
 
+{-| Return a remote procedure call that does nothing.
+-}
 none : RemoteProcedure msg
 none =
     Stomp.Internal.Batch.none

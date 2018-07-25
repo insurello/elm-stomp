@@ -15,6 +15,30 @@ effect module Stomp.Client
         , abort
         )
 
+{-| A client manages the connection with the server and is used to send commands to the server.
+
+
+# Connection
+
+@docs listen, connect, disconnect
+
+
+# Commands
+
+@docs send, call, subscribe, unsubscribe
+
+
+# Acknowledgement
+
+@docs ack, nack
+
+
+# Transactions
+
+@docs begin, commit, abort
+
+-}
+
 import WebSocket.LowLevel as WebSocket exposing (WebSocket, BadOpen)
 import Task exposing (Task)
 import Platform
@@ -103,6 +127,12 @@ type alias State msg =
     }
 
 
+{-| Open a managed connection to the server.
+
+**Note:* If the connection goes down, the effect manager tries to reconnect
+with an exponential backoff strategy. When the connection is reestablished the client will attempt to restore the previous session by automatically authenticating with the credentials from the previous session and automatically recreate all topic subscriptions.
+
+-}
 listen : Endpoint -> Sub msg
 listen server =
     subscription (SocketConnect server)
@@ -573,16 +603,50 @@ dispatchCallback router correlationId message callbacks =
             Platform.sendToApp router (callback message)
 
 
+{-| Create an authenticated session with the specified options.
+
+    Stomp.Client.connect "http://stomp.example.com/"
+        { vhost = "/"
+        , login = "username"
+        , passcode = "123456"
+        , onConnected = Connected
+        , onDisconnected = Disconnected
+        , onError = Error
+        }
+
+-}
 connect : Endpoint -> Options msg -> Cmd msg
 connect endpoint options =
     command (Connect endpoint options)
 
 
+{-| Disconnect from a server.
+
+    Stomp.Client.disconnect "http://stomp.example.com/"
+
+-}
 disconnect : Endpoint -> Cmd msg
 disconnect endpoint =
     command (Disconnect endpoint)
 
 
+{-| Send a message to a specific topic.
+
+    sendStrings : List String -> Cmd Msg
+    sendStrings strings =
+        let
+            topic =
+                "example.strings"
+
+            headers =
+                [ ( "x-example", "this is a header" ) ]
+
+            body =
+                Json.Encode.list (List.map Json.Encode.string strings)
+        in
+            Stomp.Client.send "http://stomp.example.com/" topic headers body
+
+-}
 send : Endpoint -> String -> List Header -> Maybe Json.Encode.Value -> Cmd msg
 send server destination headers body =
     let
@@ -597,6 +661,18 @@ send server destination headers body =
             |> command
 
 
+{-| Send a remote procedure call to a server.
+
+    type Msg
+        = Strings (Result String Stomp.Message.Message)
+
+    getStrings : Cmd Msg
+    getStrings =
+        Stomp.Proc.init "example.strings"
+            |> Stomp.Proc.onResponse Strings
+            |> Stomp.Client.call "http://stomp.example.com/"
+
+-}
 call : String -> RemoteProcedure msg -> Cmd msg
 call server =
     Stomp.Internal.Batch.cmd
@@ -605,16 +681,37 @@ call server =
         )
 
 
+{-| Subscribe to message from a server on a specific topic.
+
+    type Msg
+        = Strings (Result String Stomp.Message.Message)
+
+    strings : Cmd Msg
+    strings =
+        Stomp.Subscription.init "example.strings"
+            |> Stomp.Subscription.onMessage Strings
+            |> Stomp.Client.subscribe "http://stomp.example.com/"
+
+-}
 subscribe : Endpoint -> Subscription msg -> Cmd msg
 subscribe server sub =
     command (Subscribe server sub)
 
 
+{-| Unsubscribe an existing subscription (uses subscription id to identify which subscription to unsubscribe).
+
+    Stomp.Subscription.init "example.strings"
+        |> Stomp.Subscription.withSubscriptionId "strings-1"
+        |> Stomp.Client.unsubscribe "http://stomp.example.com/"
+
+-}
 unsubscribe : Endpoint -> Subscription msg -> Cmd msg
 unsubscribe server sub =
     command (Unsubscribe server sub)
 
 
+{-| Acknowledge that a message was consumed by the client when using `ClientAck` or `ClientIndividualAck` modes on a subscription.
+-}
 ack : Endpoint -> Message -> Maybe String -> Cmd msg
 ack server message trx =
     case message.ack of
@@ -638,6 +735,13 @@ ack server message trx =
             Cmd.none
 
 
+{-| The opposite of `ack`.
+
+It is used to tell the server that the client did not consume the message. The server can then either send the message to a different client, discard it, or put it in a dead letter queue. The exact behavior is server specific.
+
+`nack` applies either to one single message (if the subscription's ack mode is `ClientIndividualAck`) or to all messages sent before and not yet `ack`'ed or `nack`'ed (if the subscription's ack mode is `ClientAck`).
+
+-}
 nack : Endpoint -> Message -> Maybe String -> Cmd msg
 nack server message trx =
     case message.ack of
@@ -661,6 +765,8 @@ nack server message trx =
             Cmd.none
 
 
+{-| `begin` is used to start a transaction. Transactions in this case apply to sending and acknowledging - any messages sent or acknowledged during a transaction will be processed atomically based on the transaction.
+-}
 begin : Endpoint -> String -> Cmd msg
 begin server trx =
     let
@@ -672,6 +778,8 @@ begin server trx =
             |> command
 
 
+{-| `commit` is used to commit a transaction in progress.
+-}
 commit : Endpoint -> String -> Cmd msg
 commit server trx =
     let
@@ -683,6 +791,8 @@ commit server trx =
             |> command
 
 
+{-| `abort` is used to roll back a transaction in progress.
+-}
 abort : Endpoint -> String -> Cmd msg
 abort server trx =
     let
