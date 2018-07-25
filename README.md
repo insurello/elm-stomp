@@ -39,7 +39,7 @@ subscriptions =
 init : ( State, Cmd Msg )
 init =
     List.empty !
-      [ Stomp.Client.connect "http://stomp.example.com/"
+      [ Stomp.Client.connect server
           { vhost = "/"
           , login = "username"
           , passcode = "123456"
@@ -74,13 +74,13 @@ subscribe : Cmd Msg
 subscribe =
     Stomp.Subscription.init "example.strings"
         |> Stomp.Subscription.onMessage Strings
-        |> Stomp.Client.subscribe "http://stomp.example.com/"
+        |> Stomp.Client.subscribe server
 
 getStrings : Cmd Msg
 getStrings =
     Stomp.Proc.init "example.strings"
         |> Stomp.Proc.onResponse Strings
-        |> Stomp.Client.call "http://stomp.example.com/"
+        |> Stomp.Client.call server
 
 view : State -> Html Msg
 view state =
