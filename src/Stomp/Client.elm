@@ -55,7 +55,7 @@ import Stomp.Internal.Socket
 import Stomp.Internal.Session
 import Stomp.Internal.Subscription
 import Stomp.Internal.Proc
-import Stomp.Subscription exposing (Subscription, AckMode)
+import Stomp.Subscription exposing (Subscription)
 import Stomp.Proc exposing (RemoteProcedure)
 import Stomp.Message exposing (Message)
 
@@ -101,10 +101,10 @@ cmdMap func cmd =
             Disconnect endpoint
 
         Subscribe endpoint sub ->
-            Subscribe endpoint (Stomp.Subscription.map func sub)
+            Subscribe endpoint (Stomp.Internal.Subscription.map func sub)
 
         Unsubscribe endpoint sub ->
-            Unsubscribe endpoint (Stomp.Subscription.map func sub)
+            Unsubscribe endpoint (Stomp.Internal.Subscription.map func sub)
 
         Call endpoint proc ->
             Call endpoint (Stomp.Internal.Proc.map func proc)

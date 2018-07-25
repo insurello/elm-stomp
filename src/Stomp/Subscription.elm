@@ -1,12 +1,12 @@
 module Stomp.Subscription
     exposing
         ( Subscription
-        , AckMode(..)
         , init
         , onMessage
-        , ackMode
+        , autoAck
+        , clientAck
+        , clientIndividualAck
         , withSubscriptionId
-        , map
         )
 
 {-| A subscription on a topic.
@@ -22,40 +22,25 @@ module Stomp.Subscription
 @docs onMessage
 
 
-# Options
+# Subscription Identifier
 
-@docs AckMode, ackMode, withSubscriptionId
+@docs withSubscriptionId
 
 
-# Internal
+# Acknowledgement
 
-@docs map
+@docs autoAck, clientAck, clientIndividualAck
 
 -}
 
 import Stomp.Internal.Callback exposing (Callback)
+import Stomp.Internal.Subscription exposing (AckMode(..))
 
 
 {-| Describes a subscription.
 -}
 type alias Subscription msg =
-    Sub msg
-
-
-type alias Sub msg =
-    { id : String
-    , destination : String
-    , onMessage : Maybe (Callback msg)
-    , ack : AckMode
-    }
-
-
-{-| The message acknowledgement mode to use. `AutoAck` (default), `ClientAck` (needs to manually acknowledge receiept) or `ClientIndividualAck` (needs to manually acknowledge each individual message).
--}
-type AckMode
-    = AutoAck
-    | ClientAck
-    | ClientIndividualAck
+    Stomp.Internal.Subscription.Sub msg
 
 
 {-| Construct a subscription on a specific topic.
@@ -76,11 +61,44 @@ onMessage callback subscription =
     { subscription | onMessage = Just callback }
 
 
-{-| Set the acknowledge mode to use (default is `AutoAck`).
+{-| Set the message acknowledgment mode to "auto" (the default).
+
+When the ack mode is "auto", then the client does not need to send the server
+acknowledgements for the messages it receives. The server will assume the
+client has received the message as soon as it sends it to the client. This
+acknowledgment mode can cause messages being transmitted to the client to get
+dropped.
+
 -}
-ackMode : AckMode -> Subscription msg -> Subscription msg
-ackMode ack subscription =
-    { subscription | ack = ack }
+autoAck : Subscription msg -> Subscription msg
+autoAck subscription =
+    { subscription | ack = AutoAck }
+
+
+{-| Set the message acknowledgment mode to "client".
+
+When the ack mode is "client", then the client must send the server
+acknowledgements for the messages it processes. If the connection fails before
+a client sends an acknowledgement for the message the server will assume the
+message has not been processed and may redeliver the message to another client.
+
+-}
+clientAck : Subscription msg -> Subscription msg
+clientAck subscription =
+    { subscription | ack = ClientAck }
+
+
+{-| Set the message acknowledgment mode to "client-individual".
+
+When the ack mode is "client-individual", the acknowledgment operates just like
+the "client" acknowledgment mode except that the `ack` or `nack` sent by the
+client are not cumulative. This means that an `ack` or `nack` for a
+subsequent message does not cause a previous message to get acknowledged.
+
+-}
+clientIndividualAck : Subscription msg -> Subscription msg
+clientIndividualAck subscription =
+    { subscription | ack = ClientIndividualAck }
 
 
 {-| Set the id of the subscription to differentiate between multiple
@@ -89,13 +107,3 @@ subscriptions to the same topic (default is to use the topic name).
 withSubscriptionId : String -> Subscription msg -> Subscription msg
 withSubscriptionId id subscription =
     { subscription | id = id }
-
-
-{-| -}
-map : (a -> b) -> Subscription a -> Subscription b
-map func sub =
-    let
-        mapCallback func callback =
-            (\a -> func (callback a))
-    in
-        { sub | onMessage = Maybe.map (mapCallback func) sub.onMessage }
