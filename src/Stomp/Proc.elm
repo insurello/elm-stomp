@@ -74,7 +74,7 @@ type alias RemoteProcedure msg =
 -}
 init : String -> RemoteProcedure msg
 init cmd =
-    Stomp.Internal.Batch.identity
+    Stomp.Internal.Batch.singleton
         { cmd = cmd
         , headers = []
         , body = Nothing

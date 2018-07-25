@@ -55,7 +55,7 @@ type alias Subscription msg =
 -}
 init : String -> Subscription msg
 init destination =
-    Stomp.Internal.Batch.identity
+    Stomp.Internal.Batch.singleton
         { id = destination
         , destination = destination
         , onMessage = Nothing

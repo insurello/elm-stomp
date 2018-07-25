@@ -1,4 +1,13 @@
-module Stomp.Internal.Batch exposing (Batch, none, identity, map, batch, foldl, cmd)
+module Stomp.Internal.Batch
+    exposing
+        ( Batch
+        , none
+        , singleton
+        , map
+        , batch
+        , foldl
+        , cmd
+        )
 
 
 type Batch a
@@ -10,8 +19,8 @@ none =
     Items []
 
 
-identity : a -> Batch a
-identity item =
+singleton : a -> Batch a
+singleton item =
     Items [ item ]
 
 
