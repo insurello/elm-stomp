@@ -1,9 +1,8 @@
 module Stomp.Proc exposing
     ( RemoteProcedure, init
     , withHeader, withHeaders, withPayload
-    , onResponse
+    , onResponse, expectJson
     , batch, none
-    , expectJson
     )
 
 {-| A remote procedure call (the request/response pattern).
@@ -44,7 +43,7 @@ module Stomp.Proc exposing
 
 # Response
 
-@docs onResponse
+@docs onResponse, expectJson
 
 
 # Batching
@@ -125,10 +124,12 @@ onResponse callback =
         )
 
 
+{-| Set a callback to be triggered when the response message is received and a JSON decoder to be used to decode the message body.
+-}
 expectJson : (Result String a -> msg) -> Decoder a -> RemoteProcedure msg -> RemoteProcedure msg
 expectJson callback decoder =
     let
-        onMessage message =
+        decodeMessage message =
             message
                 |> Result.andThen
                     (\msg ->
@@ -140,7 +141,7 @@ expectJson callback decoder =
                                 Err error
                     )
     in
-    onResponse (\a -> callback (onMessage a))
+    onResponse (\a -> callback (decodeMessage a))
 
 
 {-| Batch multiple remote procedure calls together.
