@@ -30,15 +30,20 @@ module Stomp.Client exposing
 
 -}
 
-import Dict exposing (Dict)
-import Json.Encode
 import Stomp.Internal.Batch
 import Stomp.Internal.Body as Body
-import Stomp.Internal.Callback exposing (Callback)
+import Stomp.Internal.Connection
+import Stomp.Internal.Dispatch
 import Stomp.Internal.Frame exposing (Header, frame)
 import Stomp.Internal.Message
 import Stomp.Internal.Proc
 import Stomp.Internal.Session
+    exposing
+        ( insertCallback
+        , insertSubscription
+        , removeCallback
+        , removeSubscription
+        )
 import Stomp.Internal.Subscription
 import Stomp.Message exposing (Message)
 import Stomp.Proc exposing (RemoteProcedure)
@@ -46,11 +51,11 @@ import Stomp.Subscription exposing (Subscription)
 
 
 type alias Connection msg =
-    Json.Encode.Value -> Cmd msg
+    Stomp.Internal.Connection.Connection msg
 
 
 type alias OnMessage msg =
-    (Json.Encode.Value -> msg) -> Sub msg
+    Stomp.Internal.Connection.OnMessage msg
 
 
 type alias Options msg =
@@ -58,125 +63,21 @@ type alias Options msg =
 
 
 type alias Session msg =
-    { connection : Connection msg
-    , options : Options msg
-    , callbacks : Dict Stomp.Internal.Proc.CorrelationId (Callback msg)
-    , subscriptions : Dict Stomp.Internal.Subscription.SubscriptionId (Callback msg)
-    , nextId : Int
-    }
+    Stomp.Internal.Session.Session msg
 
 
 init : Connection msg -> Options msg -> Session msg
 init connection options =
-    Session connection options Dict.empty Dict.empty 1
+    Stomp.Internal.Session.init connection options
 
 
 listen : OnMessage msg -> Session msg -> Sub msg
 listen onMessage session =
     onMessage
         (\msg ->
-            Stomp.Internal.Frame.decode msg |> dispatch session
+            Stomp.Internal.Frame.decode msg
+                |> Stomp.Internal.Dispatch.dispatch session
         )
-
-
-dispatch : Session msg -> Result String Stomp.Internal.Frame.ServerFrame -> msg
-dispatch session serverFrame =
-    case serverFrame of
-        Ok (Stomp.Internal.Frame.Message headers body) ->
-            case Stomp.Internal.Message.init headers body of
-                Ok message ->
-                    dispatchMessage session message
-
-                Err error ->
-                    session.options.onError error
-
-        Ok (Stomp.Internal.Frame.Connected headers) ->
-            session.options.onConnected
-
-        Ok (Stomp.Internal.Frame.Receipt receiptId) ->
-            session.options.onDisconnected
-
-        Ok (Stomp.Internal.Frame.Error error) ->
-            session.options.onError (Maybe.withDefault "error" error)
-
-        Ok Stomp.Internal.Frame.HeartBeat ->
-            session.options.onError "heartbeat"
-
-        Err error ->
-            session.options.onError error
-
-
-dispatchMessage :
-    Session msg
-    -> Stomp.Internal.Message.InternalMessage
-    -> msg
-dispatchMessage session message =
-    let
-        correlationId =
-            message.headers
-                |> Stomp.Internal.Frame.headerValue "correlation-id"
-
-        subscription =
-            message.headers
-                |> Stomp.Internal.Frame.headerValue "subscription"
-    in
-    case ( subscription, correlationId ) of
-        ( Just "/temp-queue/proc", Just id ) ->
-            dispatchCallback session id message
-
-        ( Just sub, _ ) ->
-            dispatchSubscription session sub message
-
-        _ ->
-            session.options.onError "message dispatch failed"
-
-
-dispatchCallback :
-    Session msg
-    -> Stomp.Internal.Proc.CorrelationId
-    -> Stomp.Internal.Message.InternalMessage
-    -> msg
-dispatchCallback session correlationId message =
-    case Dict.get correlationId session.callbacks of
-        Nothing ->
-            session.options.onError "unknown correlation id"
-
-        Just callback ->
-            callback (Ok message)
-
-
-dispatchSubscription :
-    Session msg
-    -> Stomp.Internal.Subscription.SubscriptionId
-    -> Stomp.Internal.Message.InternalMessage
-    -> msg
-dispatchSubscription session subscriptionId message =
-    case Dict.get subscriptionId session.subscriptions of
-        Nothing ->
-            session.options.onError "unknown subscription id"
-
-        Just callback ->
-            callback (Ok message)
-
-
-insertCallback : Stomp.Internal.Proc.Proc msg -> Session msg -> Session msg
-insertCallback proc session =
-    case proc.onResponse of
-        Just callback ->
-            let
-                correlationId =
-                    session.nextId |> String.fromInt
-
-                newCallbacks =
-                    Dict.insert correlationId callback session.callbacks
-            in
-            { session
-                | callbacks = newCallbacks
-                , nextId = session.nextId + 1
-            }
-
-        Nothing ->
-            session
 
 
 {-| Send a message to a specific topic.
@@ -196,7 +97,7 @@ insertCallback proc session =
         Stomp.Session.send session topic headers body
 
 -}
-send : Session msg -> String -> List Header -> Maybe Json.Encode.Value -> ( Session msg, Cmd msg )
+send : Session msg -> String -> List Header -> Body.Value -> ( Session msg, Cmd msg )
 send session destination headers body =
     let
         headers_ =
@@ -234,7 +135,7 @@ call session =
                 |> Stomp.Internal.Frame.encode
                 |> (\frm ->
                         ( insertCallback proc session_
-                        , Cmd.batch [ session.connection frm, cmd ]
+                        , Cmd.batch [ cmd, session.connection frm ]
                         )
                    )
         )
@@ -259,7 +160,11 @@ subscribe session =
         (\sub ( session_, cmd ) ->
             Stomp.Internal.Subscription.subscribe sub
                 |> Stomp.Internal.Frame.encode
-                |> (\frm -> ( session_, session.connection frm ))
+                |> (\frm ->
+                        ( insertSubscription sub session_
+                        , Cmd.batch [ cmd, session.connection frm ]
+                        )
+                   )
         )
         ( session, Cmd.none )
 
@@ -277,7 +182,11 @@ unsubscribe session =
         (\sub ( session_, cmd ) ->
             Stomp.Internal.Subscription.unsubscribe sub
                 |> Stomp.Internal.Frame.encode
-                |> (\frm -> ( session_, session.connection frm ))
+                |> (\frm ->
+                        ( removeSubscription sub session_
+                        , Cmd.batch [ cmd, session.connection frm ]
+                        )
+                   )
         )
         ( session, Cmd.none )
 
