@@ -1,14 +1,14 @@
 module Stomp.Internal.Body exposing (Value, decoder, encode)
 
-import Json.Encode
 import Json.Decode
+import Json.Encode
 
 
 type alias Value =
     Maybe Json.Decode.Value
 
 
-decoder : Maybe String -> String -> Result String (Maybe Json.Decode.Value)
+decoder : Maybe String -> String -> Result Json.Decode.Error (Maybe Json.Decode.Value)
 decoder body contentType =
     case body of
         Just str ->

@@ -1,9 +1,9 @@
-module Stomp.Internal.Proc exposing (..)
+module Stomp.Internal.Proc exposing (CorrelationId, Proc, call, map)
 
 import Json.Encode exposing (Value)
 import Stomp.Internal.Body as Body
-import Stomp.Internal.Frame exposing (Header, Frame, frame)
 import Stomp.Internal.Callback exposing (Callback)
+import Stomp.Internal.Frame exposing (Frame, Header, frame)
 
 
 type alias Proc msg =
@@ -21,24 +21,26 @@ type alias CorrelationId =
 call : Proc msg -> CorrelationId -> Frame
 call proc id =
     let
-        replyTo =
-            "/temp-queue/" ++ proc.cmd
-
         headers =
-            [ ( "destination", "/queue/" ++ proc.cmd )
-            , ( "reply-to", replyTo )
+            [ ( "destination", proc.cmd )
+            , ( "reply-to", "/temp-queue/proc" )
+            , ( "content-encoding", "utf8" )
             , ( "content-type", "application/json" )
-            , ( "correlation-id", id )
+            , ( "amqp-message-id", id )
             ]
                 ++ proc.headers
     in
-        frame "SEND" headers (Body.encode proc.body)
+    frame "SEND" headers (Body.encode proc.body)
 
 
 map : (a -> b) -> Proc a -> Proc b
 map func proc =
     let
-        mapCallback func callback =
-            (\a -> func (callback a))
+        mapCallback func_ callback =
+            \a -> func_ (callback a)
     in
-        { proc | onResponse = Maybe.map (mapCallback func) proc.onResponse }
+    { cmd = proc.cmd
+    , headers = proc.headers
+    , body = proc.body
+    , onResponse = Maybe.map (mapCallback func) proc.onResponse
+    }

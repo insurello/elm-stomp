@@ -1,15 +1,10 @@
-module Stomp.Subscription
-    exposing
-        ( Subscription
-        , init
-        , onMessage
-        , autoAck
-        , clientAck
-        , clientIndividualAck
-        , withSubscriptionId
-        , batch
-        , none
-        )
+module Stomp.Subscription exposing
+    ( Subscription, init
+    , onMessage
+    , withSubscriptionId
+    , autoAck, clientAck, clientIndividualAck
+    , batch, none
+    )
 
 {-| A subscription on a topic.
 
@@ -40,9 +35,9 @@ module Stomp.Subscription
 
 -}
 
+import Stomp.Internal.Batch exposing (Batch)
 import Stomp.Internal.Callback exposing (Callback)
 import Stomp.Internal.Subscription exposing (AckMode(..))
-import Stomp.Internal.Batch exposing (Batch)
 
 
 {-| Describes a subscription.

@@ -1,4 +1,4 @@
-module Stomp.Internal.Session exposing (..)
+module Stomp.Internal.Session exposing (Options, Session, connected, error, init, map)
 
 import Stomp.Internal.Frame exposing (Frame, frame)
 
@@ -11,10 +11,7 @@ type alias Session msg =
 
 
 type alias Options msg =
-    { vhost : String
-    , login : String
-    , passcode : String
-    , onConnected : msg
+    { onConnected : msg
     , onDisconnected : msg
     , onError : String -> msg
     }
@@ -40,32 +37,7 @@ error err session =
 
 map : (a -> b) -> Options a -> Options b
 map func options =
-    { vhost = options.vhost
-    , login = options.login
-    , passcode = options.passcode
-    , onConnected = func options.onConnected
+    { onConnected = func options.onConnected
     , onDisconnected = func options.onDisconnected
-    , onError = (\err -> func (options.onError err))
+    , onError = \err -> func (options.onError err)
     }
-
-
-connect : Options msg -> Frame
-connect { login, passcode, vhost } =
-    let
-        headers =
-            [ ( "accept-version", "1.2" )
-            , ( "host", vhost )
-            , ( "login", login )
-            , ( "passcode", passcode )
-            ]
-    in
-        frame "CONNECT" headers Nothing
-
-
-disconnect : Frame
-disconnect =
-    let
-        headers =
-            [ ( "receipt", "DISCONNECT" ) ]
-    in
-        frame "DISCONNECT" headers Nothing

@@ -1,19 +1,22 @@
-module Stomp.Internal.Frame
-    exposing
-        ( frame
-        , headerValue
-        , encode
-        , decode
-        , Frame
-        , Header
-        , ServerFrame(..)
-        )
+module Stomp.Internal.Frame exposing
+    ( Frame
+    , Header
+    , ServerFrame(..)
+    , decode
+    , encode
+    , frame
+    , headerValue
+    )
 
-import Regex
+import Json.Decode
+import Json.Encode
 
 
 type alias Frame =
-    ( String, List Header, Maybe String )
+    { command : String
+    , headers : List Header
+    , body : Maybe String
+    }
 
 
 type alias Header =
@@ -30,7 +33,7 @@ type ServerFrame
 
 frame : String -> List Header -> Maybe String -> Frame
 frame command headers body =
-    ( command, headers, body )
+    Frame command headers body
 
 
 headerValue : String -> List Header -> Maybe String
@@ -40,139 +43,67 @@ headerValue key headers =
             (\( k, v ) ->
                 if k == key then
                     Just v
+
                 else
                     Nothing
             )
         |> List.head
 
 
-decode : String -> Result String ServerFrame
-decode frame =
-    case parseFrame frame of
-        ( "CONNECTED", headers, _ ) ->
-            Ok (Connected headers)
-
-        ( "MESSAGE", headers, body ) ->
-            Ok (Message headers body)
-
-        ( "RECEIPT", [ ( "receipt-id", receiptId ) ], _ ) ->
-            Ok (Receipt receiptId)
-
-        ( "ERROR", headers, body ) ->
-            Ok (Error body)
-
-        ( "", [], Nothing ) ->
-            Ok (HeartBeat)
-
-        _ ->
-            Err "Invalid frame"
-
-
-encode : Frame -> String
-encode ( command, headers, body ) =
+decode : Json.Encode.Value -> Result String ServerFrame
+decode value =
     let
-        headerLines =
-            headers
-                |> List.filter (\( k, _ ) -> k /= "")
-                |> List.map (\( k, v ) -> (escape k) ++ ":" ++ (escape v))
-                |> String.join "\n"
+        headersDecoder =
+            Json.Decode.keyValuePairs Json.Decode.string
+
+        decoder =
+            Json.Decode.map3 Frame
+                (Json.Decode.field "command" Json.Decode.string)
+                (Json.Decode.field "headers" headersDecoder)
+                (Json.Decode.maybe
+                    (Json.Decode.field "body" Json.Decode.string)
+                )
+
+        decodeFrame =
+            Json.Decode.decodeValue decoder
+    in
+    decodeFrame value
+        |> Result.mapError Json.Decode.errorToString
+        |> Result.andThen
+            (\frame_ ->
+                case ( frame_.command, frame_.headers, frame_.body ) of
+                    ( "CONNECTED", headers, _ ) ->
+                        Ok (Connected headers)
+
+                    ( "MESSAGE", headers, body ) ->
+                        Ok (Message headers body)
+
+                    ( "RECEIPT", [ ( "receipt-id", receiptId ) ], _ ) ->
+                        Ok (Receipt receiptId)
+
+                    ( "ERROR", headers, body ) ->
+                        Ok (Error body)
+
+                    ( "", [], Nothing ) ->
+                        Ok HeartBeat
+
+                    _ ->
+                        Err "Invalid frame"
+            )
+
+
+encode : Frame -> Json.Encode.Value
+encode { command, headers, body } =
+    let
+        headersValue =
+            Json.Encode.object
+                (List.map (\( k, v ) -> ( k, Json.Encode.string v )) headers)
 
         bodyStr =
-            Maybe.withDefault "" body
+            Maybe.withDefault "{}" body
     in
-        command ++ "\n" ++ headerLines ++ "\n\n" ++ bodyStr ++ "\x00"
-
-
-replaceAll : ( String, String ) -> String -> String
-replaceAll ( from, to ) =
-    Regex.replace Regex.All (from |> Regex.escape |> Regex.regex) (\_ -> to)
-
-
-escape : String -> String
-escape str =
-    List.foldl replaceAll
-        str
-        [ ( "\\", "\\\\" )
-        , ( "\x0D", "\\r" )
-        , ( "\n", "\\n" )
-        , ( ":", "\\c" )
+    Json.Encode.object
+        [ ( "command", Json.Encode.string command )
+        , ( "headers", headersValue )
+        , ( "body", Json.Encode.string bodyStr )
         ]
-
-
-unescape : String -> String
-unescape str =
-    List.foldl replaceAll
-        str
-        [ ( "\\r", "\x0D" )
-        , ( "\\n", "\n" )
-        , ( "\\c", ":" )
-        , ( "\\\\", "\\" )
-        ]
-
-
-parseFrame : String -> Frame
-parseFrame frame =
-    frame
-        |> String.lines
-        |> List.foldl
-            (\a b ->
-                case b of
-                    ( "", [], Nothing ) ->
-                        ( a, [], Nothing )
-
-                    ( cmd, headers, Nothing ) ->
-                        case a of
-                            "" ->
-                                ( cmd, headers, Just "" )
-
-                            _ ->
-                                case parseHeader a of
-                                    Just h ->
-                                        ( cmd, headers ++ [ h ], Nothing )
-
-                                    Nothing ->
-                                        ( cmd, headers, Nothing )
-
-                    ( cmd, headers, Just body ) ->
-                        ( cmd, headers, Just (body ++ a) )
-            )
-            ( "", [], Nothing )
-        |> (\( cmd, headers, body ) ->
-                ( cmd, headers, Maybe.map (readBody headers) body )
-           )
-
-
-readBody : List Header -> String -> String
-readBody headers body =
-    let
-        contentType =
-            headers
-                |> headerValue "content-type"
-
-        contentLength =
-            headers
-                |> headerValue "content-length"
-                |> Maybe.andThen (\v -> v |> String.toInt |> Result.toMaybe)
-    in
-        case ( contentType, contentLength ) of
-            ( Just "application/octet-stream", Just bytes ) ->
-                body
-                    |> String.toList
-                    |> List.take bytes
-                    |> String.fromList
-
-            _ ->
-                body
-                    |> String.split "\x00"
-                    |> List.head
-                    |> Maybe.withDefault ""
-
-
-parseHeader : String -> Maybe Header
-parseHeader str =
-    case String.split ":" str of
-        [ k, v ] ->
-            Just ( k |> unescape, v |> unescape )
-
-        _ ->
-            Nothing
