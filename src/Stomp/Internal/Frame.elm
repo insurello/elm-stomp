@@ -10,7 +10,6 @@ module Stomp.Internal.Frame exposing
 
 import Json.Decode
 import Json.Encode
-import Regex
 
 
 type alias Frame =
@@ -77,7 +76,12 @@ decode value =
 
 
 encode : Frame -> Json.Encode.Value
-encode ( command, headers, body ) =
+encode =
+    encodeFrame >> Json.Encode.string
+
+
+encodeFrame : Frame -> String
+encodeFrame ( command, headers, body ) =
     let
         contentHeaders =
             if body == Nothing then
@@ -103,27 +107,21 @@ encode ( command, headers, body ) =
         ++ "\n\n"
         ++ bodyStr
         ++ "\u{0000}"
-        |> Json.Encode.string
 
 
-replaceAll : ( Maybe Regex.Regex, String ) -> String -> String
+replaceAll : ( String, String ) -> String -> String
 replaceAll ( from, to ) =
-    case from of
-        Just regex ->
-            Regex.replace regex (\_ -> to)
-
-        Nothing ->
-            Regex.replace Regex.never (\_ -> to)
+    String.replace from to
 
 
 escape : String -> String
 escape str =
     List.foldl replaceAll
         str
-        [ ( Regex.fromString "\\", "\\\\" )
-        , ( Regex.fromString "\u{000D}", "\\r" )
-        , ( Regex.fromString "\n", "\\n" )
-        , ( Regex.fromString ":", "\\c" )
+        [ ( "\\", "\\\\" )
+        , ( "\u{000D}", "\\r" )
+        , ( "\n", "\\n" )
+        , ( ":", "\\c" )
         ]
 
 
@@ -131,10 +129,10 @@ unescape : String -> String
 unescape str =
     List.foldl replaceAll
         str
-        [ ( Regex.fromString "\\r", "\u{000D}" )
-        , ( Regex.fromString "\\n", "\n" )
-        , ( Regex.fromString "\\c", ":" )
-        , ( Regex.fromString "\\\\", "\\" )
+        [ ( "\\r", "\u{000D}" )
+        , ( "\\n", "\n" )
+        , ( "\\c", ":" )
+        , ( "\\\\", "\\" )
         ]
 
 
