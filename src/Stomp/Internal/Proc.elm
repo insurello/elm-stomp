@@ -24,8 +24,6 @@ call proc id =
         headers =
             [ ( "destination", proc.cmd )
             , ( "reply-to", "/temp-queue/proc" )
-            , ( "content-encoding", "utf8" )
-            , ( "content-type", "application/json" )
             , ( "amqp-message-id", id )
             ]
                 ++ proc.headers

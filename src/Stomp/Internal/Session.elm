@@ -29,6 +29,7 @@ type alias Options msg =
     { onConnected : msg
     , onDisconnected : msg
     , onError : String -> msg
+    , onHeartBeat : msg
     }
 
 

@@ -1,5 +1,5 @@
 module Stomp.Client exposing
-    ( listen
+    ( listen, connect, disconnect
     , send, call, subscribe, unsubscribe
     , ack, nack
     , begin, commit, abort
@@ -80,6 +80,33 @@ listen onMessage session =
         )
 
 
+connect : Session msg -> String -> String -> String -> Cmd msg
+connect session login passcode vhost =
+    let
+        headers =
+            [ ( "accept-version", "1.2" )
+            , ( "heart-beat", "0,1000" )
+            , ( "host", vhost )
+            , ( "login", login )
+            , ( "passcode", passcode )
+            ]
+    in
+    frame "CONNECT" headers Nothing
+        |> Stomp.Internal.Frame.encode
+        |> session.connection
+
+
+disconnect : Session msg -> ( Session msg, Cmd msg )
+disconnect session =
+    let
+        headers =
+            [ ( "receipt", "DISCONNECT" ) ]
+    in
+    frame "DISCONNECT" headers Nothing
+        |> Stomp.Internal.Frame.encode
+        |> (\frm -> ( session, session.connection frm ))
+
+
 {-| Send a message to a specific topic.
 
     sendStrings : List String -> Cmd Msg
@@ -101,9 +128,7 @@ send : Session msg -> String -> List Header -> Body.Value -> ( Session msg, Cmd 
 send session destination headers body =
     let
         headers_ =
-            [ ( "destination", destination )
-            , ( "content-type", "application/json" )
-            ]
+            [ ( "destination", destination ) ]
                 ++ headers
     in
     frame "SEND" headers_ (Body.encode body)

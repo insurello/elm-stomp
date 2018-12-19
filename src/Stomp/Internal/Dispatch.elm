@@ -6,6 +6,7 @@ import Stomp.Internal.Message exposing (InternalMessage)
 import Stomp.Internal.Proc exposing (CorrelationId)
 import Stomp.Internal.Session exposing (Session)
 import Stomp.Internal.Subscription exposing (SubscriptionId)
+import Task
 
 
 dispatch : Session msg -> Result String ServerFrame -> msg
@@ -29,7 +30,7 @@ dispatch session serverFrame =
             session.options.onError (Maybe.withDefault "error" error)
 
         Ok Stomp.Internal.Frame.HeartBeat ->
-            session.options.onError "heartbeat"
+            session.options.onHeartBeat
 
         Err error ->
             session.options.onError error

@@ -10,13 +10,11 @@ module Stomp.Internal.Frame exposing
 
 import Json.Decode
 import Json.Encode
+import Regex
 
 
 type alias Frame =
-    { command : String
-    , headers : List Header
-    , body : Maybe String
-    }
+    ( String, List Header, Maybe String )
 
 
 type alias Header =
@@ -33,7 +31,7 @@ type ServerFrame
 
 frame : String -> List Header -> Maybe String -> Frame
 frame command headers body =
-    Frame command headers body
+    ( command, headers, body )
 
 
 headerValue : String -> List Header -> Maybe String
@@ -50,28 +48,14 @@ headerValue key headers =
         |> List.head
 
 
-decode : Json.Encode.Value -> Result String ServerFrame
+decode : Json.Decode.Value -> Result String ServerFrame
 decode value =
-    let
-        headersDecoder =
-            Json.Decode.keyValuePairs Json.Decode.string
-
-        decoder =
-            Json.Decode.map3 Frame
-                (Json.Decode.field "command" Json.Decode.string)
-                (Json.Decode.field "headers" headersDecoder)
-                (Json.Decode.maybe
-                    (Json.Decode.field "body" Json.Decode.string)
-                )
-
-        decodeFrame =
-            Json.Decode.decodeValue decoder
-    in
-    decodeFrame value
+    Json.Decode.decodeValue Json.Decode.string value
         |> Result.mapError Json.Decode.errorToString
+        |> Result.map parseFrame
         |> Result.andThen
-            (\frame_ ->
-                case ( frame_.command, frame_.headers, frame_.body ) of
+            (\frm ->
+                case frm of
                     ( "CONNECTED", headers, _ ) ->
                         Ok (Connected headers)
 
@@ -93,17 +77,130 @@ decode value =
 
 
 encode : Frame -> Json.Encode.Value
-encode { command, headers, body } =
+encode ( command, headers, body ) =
     let
-        headersValue =
-            Json.Encode.object
-                (List.map (\( k, v ) -> ( k, Json.Encode.string v )) headers)
+        contentHeaders =
+            if body == Nothing then
+                [ ( "content-length", "0" ) ]
+
+            else
+                [ ( "content-encoding", "utf8" )
+                , ( "content-type", "application/json" )
+                ]
+
+        headerLines =
+            (headers ++ contentHeaders)
+                |> List.filter (\( k, _ ) -> k /= "")
+                |> List.map (\( k, v ) -> escape k ++ ":" ++ escape v)
+                |> String.join "\n"
 
         bodyStr =
-            Maybe.withDefault "{}" body
+            Maybe.withDefault "" body
     in
-    Json.Encode.object
-        [ ( "command", Json.Encode.string command )
-        , ( "headers", headersValue )
-        , ( "body", Json.Encode.string bodyStr )
+    command
+        ++ "\n"
+        ++ headerLines
+        ++ "\n\n"
+        ++ bodyStr
+        ++ "\u{0000}"
+        |> Json.Encode.string
+
+
+replaceAll : ( Maybe Regex.Regex, String ) -> String -> String
+replaceAll ( from, to ) =
+    case from of
+        Just regex ->
+            Regex.replace regex (\_ -> to)
+
+        Nothing ->
+            Regex.replace Regex.never (\_ -> to)
+
+
+escape : String -> String
+escape str =
+    List.foldl replaceAll
+        str
+        [ ( Regex.fromString "\\", "\\\\" )
+        , ( Regex.fromString "\u{000D}", "\\r" )
+        , ( Regex.fromString "\n", "\\n" )
+        , ( Regex.fromString ":", "\\c" )
         ]
+
+
+unescape : String -> String
+unescape str =
+    List.foldl replaceAll
+        str
+        [ ( Regex.fromString "\\r", "\u{000D}" )
+        , ( Regex.fromString "\\n", "\n" )
+        , ( Regex.fromString "\\c", ":" )
+        , ( Regex.fromString "\\\\", "\\" )
+        ]
+
+
+parseFrame : String -> Frame
+parseFrame str =
+    str
+        |> String.lines
+        |> List.foldl
+            (\a b ->
+                case b of
+                    ( "", [], Nothing ) ->
+                        ( a, [], Nothing )
+
+                    ( cmd, headers, Nothing ) ->
+                        case a of
+                            "" ->
+                                ( cmd, headers, Just "" )
+
+                            _ ->
+                                case parseHeader a of
+                                    Just h ->
+                                        ( cmd, headers ++ [ h ], Nothing )
+
+                                    Nothing ->
+                                        ( cmd, headers, Nothing )
+
+                    ( cmd, headers, Just body ) ->
+                        ( cmd, headers, Just (body ++ a) )
+            )
+            ( "", [], Nothing )
+        |> (\( cmd, headers, body ) ->
+                ( cmd, headers, Maybe.map (readBody headers) body )
+           )
+
+
+readBody : List Header -> String -> String
+readBody headers body =
+    let
+        contentType =
+            headers
+                |> headerValue "content-type"
+
+        contentLength =
+            headers
+                |> headerValue "content-length"
+                |> Maybe.andThen (\v -> v |> String.toInt)
+    in
+    case ( contentType, contentLength ) of
+        ( Just "application/octet-stream", Just bytes ) ->
+            body
+                |> String.toList
+                |> List.take bytes
+                |> String.fromList
+
+        _ ->
+            body
+                |> String.split "\u{0000}"
+                |> List.head
+                |> Maybe.withDefault ""
+
+
+parseHeader : String -> Maybe Header
+parseHeader str =
+    case String.split ":" str of
+        [ k, v ] ->
+            Just ( k |> unescape, v |> unescape )
+
+        _ ->
+            Nothing
