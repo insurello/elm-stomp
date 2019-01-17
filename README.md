@@ -18,76 +18,104 @@ import Stomp.Subscription
 import Html exposing (..)
 import Html.Events exposing (..)
 
+port socket : Stomp.Client.Connection msg
+port onMessage : Stomp.Client.OnMessage msg
+
 type alias State =
-    List String
+    { session : Stomp.Client.Session Msg
+    , result : List String
+    }
 
 type Msg
     = Connected
     | Disconnected
-    | Error
+    | Error String
+    | HeartBeat
     | Click
-    | Strings (Result String Stomp.Message.Message)
+    | Strings (Result String (List String))
 
-server : String
-server =
-    "http://stomp.example.com/"
-
-subscriptions : Sub Msg
-subscriptions =
-    Stomp.Client.listen server
+subscriptions : State -> Sub Msg
+subscriptions state =
+    Stomp.Client.listen onMessage state.session
 
 init : ( State, Cmd Msg )
 init =
-    List.empty !
-      [ Stomp.Client.connect server
-          { vhost = "/"
-          , login = "username"
-          , passcode = "123456"
-          , onConnected = Connected
-          , onDisconnected = Disconnected
-          , onError = Error
-          }
-      ]
+    let
+        session =
+            Stomp.Client.init socket
+                { onConnected = Connected
+                , onDisconnected = Disconnected
+                , onError = Error
+                , onHeartBeat = HeartBeat
+                }
+    in
+    ( State session List.empty
+    , Stomp.Client.connect session "guest" "guest" "/"
+    )
 
 update : Msg -> State -> ( State, Cmd Msg )
 update msg state =
     case msg of
         Connected ->
-            state ! [ subscribe ]
+            ( state, subscribe state.session )
 
         Disconnected ->
-            state ! []
+            ( state, Cmd.none )
 
         Error _ ->
-            state ! []
+            ( state, Cmd.none )
+
+        HeartBeat ->
+            ( state, Cmd.none )
 
         Click ->
-            state ! [ getStrings ]
+            ( state, getString state.session )
 
         Strings (Ok strings) ->
-            strings ! []
+            ( { state | result = strings }, Cmd.none )
 
         Strings (Err _) ->
-            state ! []
+            ( state, Cmd.none )
 
-subscribe : Cmd Msg
-subscribe =
+subscribe : Stomp.Client.Session Msg -> Cmd Msg
+subscribe session =
     Stomp.Subscription.init "example.strings"
-        |> Stomp.Subscription.onMessage Strings
-        |> Stomp.Client.subscribe server
+        |> Stomp.Subscription.expectJson Strings decoder
+        |> Stomp.Client.subscribe session
 
-getStrings : Cmd Msg
-getStrings =
+getStrings : Stomp.Client.Session Msg -> Cmd Msg
+getStrings session =
     Stomp.Proc.init "example.strings"
-        |> Stomp.Proc.onResponse Strings
-        |> Stomp.Client.call server
+        |> Stomp.Proc.expectJson Strings decoder
+        |> Stomp.Client.call session
+
+decoder : Json.Decode.Decoder (List String)
+decoder =
+  Json.Decode.list Json.Decode.string
 
 view : State -> Html Msg
 view state =
   div []
-    [ ul [] (List.map (\str -> li [] [ text str ]) state)
+    [ ul [] (List.map (\str -> li [] [ text str ]) state.result)
     , button
         [ onClick Click ]
         [ text "Fetch strings" ]
     ]
+```
+
+## Ports
+
+To actually connect to a server your application need to be wired up to a WebSocket using two ports. One for outgoing messages and another one for incoming.
+
+```javascript
+var socket = new WebSocket("ws://stomp.example.com/", ["v12.stomp"]);
+socket.onopen = function() {
+  var app = Elm.Main.init();
+  app.ports.socket.subscribe(function(data) {
+    socket.send(data);
+  });
+  socket.onmessage = function(event) {
+    app.ports.onMessage.send(event.data);
+  };
+};
 ```

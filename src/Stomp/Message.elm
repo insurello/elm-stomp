@@ -1,4 +1,7 @@
-module Stomp.Message exposing (Message, header, payload)
+module Stomp.Message exposing
+    ( Message
+    , header, payload
+    )
 
 {-| A message from the server. A server can send a message either as a response to a remote procedure call or because you created a subscription on a topic.
 
@@ -37,8 +40,8 @@ header name message =
 
 {-| Decode the payload content of a message.
 
-    import Stomp.Message
     import Json.Decode exposing (list, string)
+    import Stomp.Message
 
     getStrings : Stomp.Message.Message -> List String
     getStrings message =
@@ -50,6 +53,7 @@ payload decoder message =
     case message.payload of
         Just value ->
             decodeValue decoder value
+                |> Result.mapError Json.Decode.errorToString
 
         Nothing ->
             Result.Err "Empty message body"

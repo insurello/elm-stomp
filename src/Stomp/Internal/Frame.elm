@@ -1,15 +1,15 @@
-module Stomp.Internal.Frame
-    exposing
-        ( frame
-        , headerValue
-        , encode
-        , decode
-        , Frame
-        , Header
-        , ServerFrame(..)
-        )
+module Stomp.Internal.Frame exposing
+    ( Frame
+    , Header
+    , ServerFrame(..)
+    , decode
+    , encode
+    , frame
+    , headerValue
+    )
 
-import Regex
+import Json.Decode
+import Json.Encode
 
 
 type alias Frame =
@@ -40,52 +40,78 @@ headerValue key headers =
             (\( k, v ) ->
                 if k == key then
                     Just v
+
                 else
                     Nothing
             )
         |> List.head
 
 
-decode : String -> Result String ServerFrame
-decode frame =
-    case parseFrame frame of
-        ( "CONNECTED", headers, _ ) ->
-            Ok (Connected headers)
+decode : Json.Decode.Value -> Result String ServerFrame
+decode value =
+    Json.Decode.decodeValue Json.Decode.string value
+        |> Result.mapError Json.Decode.errorToString
+        |> Result.map parseFrame
+        |> Result.andThen
+            (\frm ->
+                case frm of
+                    ( "CONNECTED", headers, _ ) ->
+                        Ok (Connected headers)
 
-        ( "MESSAGE", headers, body ) ->
-            Ok (Message headers body)
+                    ( "MESSAGE", headers, body ) ->
+                        Ok (Message headers body)
 
-        ( "RECEIPT", [ ( "receipt-id", receiptId ) ], _ ) ->
-            Ok (Receipt receiptId)
+                    ( "RECEIPT", [ ( "receipt-id", receiptId ) ], _ ) ->
+                        Ok (Receipt receiptId)
 
-        ( "ERROR", headers, body ) ->
-            Ok (Error body)
+                    ( "ERROR", headers, body ) ->
+                        Ok (Error body)
 
-        ( "", [], Nothing ) ->
-            Ok (HeartBeat)
+                    ( "", [], Nothing ) ->
+                        Ok HeartBeat
 
-        _ ->
-            Err "Invalid frame"
+                    _ ->
+                        Err "Invalid frame"
+            )
 
 
-encode : Frame -> String
-encode ( command, headers, body ) =
+encode : Frame -> Json.Encode.Value
+encode =
+    encodeFrame >> Json.Encode.string
+
+
+encodeFrame : Frame -> String
+encodeFrame ( command, headers, body ) =
     let
+        contentHeaders =
+            if body == Nothing then
+                [ ( "content-length", "0" ) ]
+
+            else
+                [ ( "content-encoding", "utf8" )
+                , ( "content-type", "application/json" )
+                ]
+
         headerLines =
-            headers
+            (headers ++ contentHeaders)
                 |> List.filter (\( k, _ ) -> k /= "")
-                |> List.map (\( k, v ) -> (escape k) ++ ":" ++ (escape v))
+                |> List.map (\( k, v ) -> escape k ++ ":" ++ escape v)
                 |> String.join "\n"
 
         bodyStr =
             Maybe.withDefault "" body
     in
-        command ++ "\n" ++ headerLines ++ "\n\n" ++ bodyStr ++ "\x00"
+    command
+        ++ "\n"
+        ++ headerLines
+        ++ "\n\n"
+        ++ bodyStr
+        ++ "\u{0000}"
 
 
 replaceAll : ( String, String ) -> String -> String
 replaceAll ( from, to ) =
-    Regex.replace Regex.All (from |> Regex.escape |> Regex.regex) (\_ -> to)
+    String.replace from to
 
 
 escape : String -> String
@@ -93,7 +119,7 @@ escape str =
     List.foldl replaceAll
         str
         [ ( "\\", "\\\\" )
-        , ( "\x0D", "\\r" )
+        , ( "\u{000D}", "\\r" )
         , ( "\n", "\\n" )
         , ( ":", "\\c" )
         ]
@@ -103,7 +129,7 @@ unescape : String -> String
 unescape str =
     List.foldl replaceAll
         str
-        [ ( "\\r", "\x0D" )
+        [ ( "\\r", "\u{000D}" )
         , ( "\\n", "\n" )
         , ( "\\c", ":" )
         , ( "\\\\", "\\" )
@@ -111,8 +137,8 @@ unescape str =
 
 
 parseFrame : String -> Frame
-parseFrame frame =
-    frame
+parseFrame str =
+    str
         |> String.lines
         |> List.foldl
             (\a b ->
@@ -152,20 +178,20 @@ readBody headers body =
         contentLength =
             headers
                 |> headerValue "content-length"
-                |> Maybe.andThen (\v -> v |> String.toInt |> Result.toMaybe)
+                |> Maybe.andThen (\v -> v |> String.toInt)
     in
-        case ( contentType, contentLength ) of
-            ( Just "application/octet-stream", Just bytes ) ->
-                body
-                    |> String.toList
-                    |> List.take bytes
-                    |> String.fromList
+    case ( contentType, contentLength ) of
+        ( Just "application/octet-stream", Just bytes ) ->
+            body
+                |> String.toList
+                |> List.take bytes
+                |> String.fromList
 
-            _ ->
-                body
-                    |> String.split "\x00"
-                    |> List.head
-                    |> Maybe.withDefault ""
+        _ ->
+            body
+                |> String.split "\u{0000}"
+                |> List.head
+                |> Maybe.withDefault ""
 
 
 parseHeader : String -> Maybe Header

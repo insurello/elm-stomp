@@ -1,15 +1,10 @@
-module Stomp.Subscription
-    exposing
-        ( Subscription
-        , init
-        , onMessage
-        , autoAck
-        , clientAck
-        , clientIndividualAck
-        , withSubscriptionId
-        , batch
-        , none
-        )
+module Stomp.Subscription exposing
+    ( Subscription, init
+    , onMessage, expectJson
+    , withSubscriptionId
+    , autoAck, clientAck, clientIndividualAck
+    , batch, none
+    )
 
 {-| A subscription on a topic.
 
@@ -21,7 +16,7 @@ module Stomp.Subscription
 
 # Response
 
-@docs onMessage
+@docs onMessage, expectJson
 
 
 # Subscription Identifier
@@ -40,9 +35,11 @@ module Stomp.Subscription
 
 -}
 
+import Json.Decode exposing (Decoder)
+import Stomp.Internal.Batch exposing (Batch)
 import Stomp.Internal.Callback exposing (Callback)
 import Stomp.Internal.Subscription exposing (AckMode(..))
-import Stomp.Internal.Batch exposing (Batch)
+import Stomp.Message
 
 
 {-| Describes a subscription.
@@ -71,6 +68,26 @@ onMessage callback =
         (\subscription ->
             { subscription | onMessage = Just callback }
         )
+
+
+{-| Set a callback to be triggered when a message is received and a JSON decoder to be used to decode the message body.
+-}
+expectJson : (Result String a -> msg) -> Decoder a -> Subscription msg -> Subscription msg
+expectJson callback decoder =
+    let
+        decodeMessage message =
+            message
+                |> Result.andThen
+                    (\msg ->
+                        case Stomp.Message.payload decoder msg of
+                            Ok payload ->
+                                Ok payload
+
+                            Err error ->
+                                Err error
+                    )
+    in
+    onMessage (\a -> callback (decodeMessage a))
 
 
 {-| Set the message acknowledgment mode to "auto" (the default).

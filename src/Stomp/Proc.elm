@@ -1,14 +1,9 @@
-module Stomp.Proc
-    exposing
-        ( RemoteProcedure
-        , init
-        , withHeader
-        , withHeaders
-        , withPayload
-        , onResponse
-        , batch
-        , none
-        )
+module Stomp.Proc exposing
+    ( RemoteProcedure, init
+    , withHeader, withHeaders, withPayload
+    , onResponse, expectJson
+    , batch, none
+    )
 
 {-| A remote procedure call (the request/response pattern).
 
@@ -48,7 +43,7 @@ module Stomp.Proc
 
 # Response
 
-@docs onResponse
+@docs onResponse, expectJson
 
 
 # Batching
@@ -57,11 +52,13 @@ module Stomp.Proc
 
 -}
 
+import Json.Decode exposing (Decoder)
 import Json.Encode exposing (Value)
-import Stomp.Internal.Proc exposing (Proc)
-import Stomp.Internal.Frame exposing (Header)
-import Stomp.Internal.Callback exposing (Callback)
 import Stomp.Internal.Batch exposing (Batch)
+import Stomp.Internal.Callback exposing (Callback)
+import Stomp.Internal.Frame exposing (Header)
+import Stomp.Internal.Proc exposing (Proc)
+import Stomp.Message
 
 
 {-| Describes a remote procedure call.
@@ -80,6 +77,11 @@ init cmd =
         , body = Nothing
         , onResponse = Nothing
         }
+
+
+expiresAfter : Float -> RemoteProcedure msg -> RemoteProcedure msg
+expiresAfter milliseconds =
+    withHeader ( "expiration", String.fromFloat milliseconds )
 
 
 {-| Add a header to the request message.
@@ -120,6 +122,26 @@ onResponse callback =
         (\proc ->
             { proc | onResponse = Just callback }
         )
+
+
+{-| Set a callback to be triggered when the response message is received and a JSON decoder to be used to decode the message body.
+-}
+expectJson : (Result String a -> msg) -> Decoder a -> RemoteProcedure msg -> RemoteProcedure msg
+expectJson callback decoder =
+    let
+        decodeMessage message =
+            message
+                |> Result.andThen
+                    (\msg ->
+                        case Stomp.Message.payload decoder msg of
+                            Ok payload ->
+                                Ok payload
+
+                            Err error ->
+                                Err error
+                    )
+    in
+    onResponse (\a -> callback (decodeMessage a))
 
 
 {-| Batch multiple remote procedure calls together.

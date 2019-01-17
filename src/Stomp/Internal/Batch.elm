@@ -1,13 +1,12 @@
-module Stomp.Internal.Batch
-    exposing
-        ( Batch
-        , none
-        , singleton
-        , map
-        , batch
-        , foldl
-        , cmd
-        )
+module Stomp.Internal.Batch exposing
+    ( Batch
+    , batch
+    , cmd
+    , foldl
+    , map
+    , none
+    , singleton
+    )
 
 
 type Batch a
@@ -25,8 +24,8 @@ singleton item =
 
 
 map : (a -> b) -> Batch a -> Batch b
-map func batch =
-    case batch of
+map func batch_ =
+    case batch_ of
         Items items ->
             Items (List.map func items)
 
@@ -34,19 +33,19 @@ map func batch =
 batch : List (Batch a) -> Batch a
 batch items =
     items
-        |> List.map (\(Items items) -> items)
+        |> List.map (\(Items items_) -> items_)
         |> List.concat
         |> Items
 
 
 foldl : (a -> b -> b) -> b -> Batch a -> b
-foldl func acc batch =
-    case batch of
+foldl func acc batch_ =
+    case batch_ of
         Items items ->
             List.foldl func acc items
 
 
 cmd : (a -> Cmd b) -> Batch a -> Cmd b
-cmd func batch =
+cmd func batch_ =
     Cmd.batch <|
-        foldl (\a acc -> acc ++ [ func a ]) [] batch
+        foldl (\a acc -> acc ++ [ func a ]) [] batch_

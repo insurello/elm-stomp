@@ -1,5 +1,6 @@
 module Stomp.Internal.Message exposing (InternalMessage, init)
 
+import Json.Decode
 import Stomp.Internal.Body as Body
 import Stomp.Internal.Frame exposing (Header)
 
@@ -38,14 +39,16 @@ init headers body =
                 _ ->
                     False
     in
-        Result.map2
-            (\messageId payload ->
-                { id = messageId
-                , ack = ack
-                , redelivered = redelivered
-                , headers = headers
-                , payload = payload
-                }
-            )
-            (messageId)
-            (Body.decoder body contentType)
+    Result.map2
+        (\messageId_ payload ->
+            { id = messageId_
+            , ack = ack
+            , redelivered = redelivered
+            , headers = headers
+            , payload = payload
+            }
+        )
+        messageId
+        (Body.decoder body contentType
+            |> Result.mapError Json.Decode.errorToString
+        )

@@ -1,11 +1,15 @@
-module Stomp.Internal.Subscription exposing (..)
+module Stomp.Internal.Subscription exposing (AckMode(..), Sub, SubscriptionId, map, subscribe, unsubscribe)
 
-import Stomp.Internal.Frame exposing (Frame, frame)
 import Stomp.Internal.Callback exposing (Callback)
+import Stomp.Internal.Frame exposing (Frame, frame)
+
+
+type alias SubscriptionId =
+    String
 
 
 type alias Sub msg =
-    { id : String
+    { id : SubscriptionId
     , destination : String
     , onMessage : Maybe (Callback msg)
     , ack : AckMode
@@ -37,7 +41,7 @@ subscribe sub =
               )
             ]
     in
-        frame "SUBSCRIBE" headers Nothing
+    frame "SUBSCRIBE" headers Nothing
 
 
 unsubscribe : Sub msg -> Frame
@@ -46,13 +50,17 @@ unsubscribe sub =
         headers =
             [ ( "id", sub.id ) ]
     in
-        frame "UNSUBSCRIBE" headers Nothing
+    frame "UNSUBSCRIBE" headers Nothing
 
 
 map : (a -> b) -> Sub a -> Sub b
 map func sub =
     let
-        mapCallback func callback =
-            (\a -> func (callback a))
+        mapCallback func_ callback =
+            \a -> func_ (callback a)
     in
-        { sub | onMessage = Maybe.map (mapCallback func) sub.onMessage }
+    { id = sub.id
+    , destination = sub.destination
+    , onMessage = Maybe.map (mapCallback func) sub.onMessage
+    , ack = sub.ack
+    }
