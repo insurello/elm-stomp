@@ -80,6 +80,8 @@ init cmd =
         }
 
 
+{-| Add expiration header to the request message.
+-}
 expiresAfter : Float -> RemoteProcedure msg -> RemoteProcedure msg
 expiresAfter milliseconds =
     withHeader ( "expiration", String.fromFloat milliseconds )
