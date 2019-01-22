@@ -161,6 +161,8 @@ none =
     Stomp.Internal.Batch.none
 
 
+{-| Map a remote procedure of msg a to a remote procedure of msg b.
+-}
 map : (a -> b) -> RemoteProcedure a -> RemoteProcedure b
 map func =
     Stomp.Internal.Batch.map (Stomp.Internal.Proc.map func)
