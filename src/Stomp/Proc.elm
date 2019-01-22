@@ -3,6 +3,7 @@ module Stomp.Proc exposing
     , withHeader, withHeaders, withPayload
     , onResponse, expectJson
     , batch, none
+    , expiresAfter, map
     )
 
 {-| A remote procedure call (the request/response pattern).
@@ -156,3 +157,8 @@ batch =
 none : RemoteProcedure msg
 none =
     Stomp.Internal.Batch.none
+
+
+map : (a -> b) -> RemoteProcedure a -> RemoteProcedure b
+map func =
+    Stomp.Internal.Batch.map (Stomp.Internal.Proc.map func)
