@@ -3,6 +3,7 @@ module Stomp.Proc exposing
     , withHeader, withHeaders, withPayload
     , onResponse, expectJson
     , batch, none
+    , expiresAfter, map
     )
 
 {-| A remote procedure call (the request/response pattern).
@@ -79,6 +80,8 @@ init cmd =
         }
 
 
+{-| Add expiration header to the request message.
+-}
 expiresAfter : Float -> RemoteProcedure msg -> RemoteProcedure msg
 expiresAfter milliseconds =
     withHeader ( "expiration", String.fromFloat milliseconds )
@@ -156,3 +159,10 @@ batch =
 none : RemoteProcedure msg
 none =
     Stomp.Internal.Batch.none
+
+
+{-| Map a remote procedure of msg a to a remote procedure of msg b.
+-}
+map : (a -> b) -> RemoteProcedure a -> RemoteProcedure b
+map func =
+    Stomp.Internal.Batch.map (Stomp.Internal.Proc.map func)
