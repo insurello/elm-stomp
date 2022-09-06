@@ -1,3 +1,4 @@
+# This repo is no longer in use and has been archived
 # Stomp
 
 An Elm client for the STOMP protocol (version 1.2).
